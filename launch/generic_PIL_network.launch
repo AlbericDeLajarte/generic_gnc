@@ -1,0 +1,44 @@
+<!-- Launch file for Processor in the loop simulation, launching only the GNC algorithms-->
+<launch>
+
+  <param name="gnc_package" type="str" value="generic_gnc" />
+
+  <machine name="local" address="localhost"/>
+  <machine name="raspberrypi" address="raspberrypi.local" user="pi" password="ert2021" timeout="50"
+          env-loader="/home/pi/catkin_ws/devel/remote_env_loader.sh"/>
+
+  <param name="simulation" type="int" value="3" />
+
+  <group ns="rocket">
+      <rosparam file="$(find generic_gnc)/config/rocket_parameters.yaml" />
+  </group>
+
+  <group ns="environment">
+      <rosparam file="$(find generic_gnc)/config/environment_parameters.yaml" />
+  </group>
+
+  <group ns="perturbation">
+      <rosparam file="$(find real_time_simulator)/config/perturbations_parameters.yaml" />
+  </group>
+
+  <group ns="visualization">
+    <rosparam file="$(find real_time_simulator)/config/visualization_parameters.yaml" />
+  </group>
+
+
+  <node machine="raspberrypi" name="generic_control" pkg="generic_gnc" type="generic_control" output ="screen"/>
+  <node machine="raspberrypi" name="generic_navigation" pkg="generic_gnc" type="generic_navigation" output ="screen"/>
+  <node machine="raspberrypi" name="generic_fsm" pkg="generic_gnc" type="generic_fsm" output ="screen"/>
+  <node machine="raspberrypi" name="av_interface" pkg="generic_gnc" type="av_interface.py" output ="screen"/>
+
+  <node machine="local" name="aerodynamic" pkg="real_time_simulator" type="aerodynamic.py" cwd = "node" />
+  <node machine="local" name="disturbance" pkg="real_time_simulator" type="disturbance.py" cwd = "node"/>
+  <node machine="local" name="integrator" pkg="real_time_simulator" type="integrator" cwd = "node" output ="screen"/>
+  <node machine="local" name="GUI_interface" pkg="real_time_simulator" type="GUI_interface" />
+  <node machine="local" name="rqt_gui" pkg="rqt_gui" type="rqt_gui" args="--perspective-file $(find real_time_simulator)/GUI/rocket_GUI.perspective"/>
+  <node machine="local" pkg="rosbag" type="record" name="recorder" args="record -a -O $(find real_time_simulator)/log/log.bag"/>
+
+
+</launch>
+
+

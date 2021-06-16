@@ -1,0 +1,23 @@
+<!-- Launch file to activate real-time simulator and connect to it the generic_gnc algorithms-->
+<launch>
+
+  <param name="simulation" type="int" value="3" />
+
+  <group ns="rocket">
+      <rosparam file="$(find generic_gnc)/config/rocket_parameters.yaml" />
+  </group>
+
+  <group ns="environment">
+      <rosparam file="$(find generic_gnc)/config/environment_parameters.yaml" />
+  </group>
+
+  <group ns="perturbation">
+      <rosparam file="$(find real_time_simulator)/config/perturbations_parameters.yaml" />
+  </group>
+
+  <node name="monte_carlo_logger" pkg="generic_gnc" type="monte_carlo.py" output ="screen"/>
+  <node pkg="rosbag" type="record" name="recorder" args="record -a -O $(find real_time_simulator)/log/log.bag"/>
+
+</launch>
+
+

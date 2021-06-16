@@ -1,0 +1,18 @@
+<!-- Launch file to activate real-time simulator and connect to it the generic_gnc algorithms-->
+<launch>
+
+  <param name="gnc_package" type="str" value="generic_gnc" />
+
+  <node name="generic_control" pkg="generic_gnc" type="generic_control" output ="screen"/>
+  <node name="generic_navigation" pkg="generic_gnc" type="generic_navigation" output ="screen"/>
+  <node name="generic_fsm" pkg="generic_gnc" type="generic_fsm" output ="screen"/>
+  <node name="av_interface" pkg="generic_gnc" type="av_interface.py" output ="screen"/>
+
+
+  <node name="aerodynamic" pkg="real_time_simulator" type="aerodynamic.py" cwd = "node" output ="screen" />
+  <node name="disturbance" pkg="real_time_simulator" type="disturbance.py" cwd = "node"/>
+  <node name="integrator" pkg="real_time_simulator" type="integrator" cwd = "node" output ="screen"/>
+
+</launch>
+
+

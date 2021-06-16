@@ -1,0 +1,25 @@
+<!-- Launch file for a real flight, launching only the GNC algorithms-->
+<launch>
+
+  <param name="simulation" type="int" value="0" />
+
+  <group ns="rocket">
+      <rosparam file="$(find generic_gnc)/config/rocket_parameters.yaml" />
+  </group>
+
+  <group ns="environment">
+      <rosparam file="$(find generic_gnc)/config/environment_parameters.yaml" />
+  </group>
+
+
+  <node name="generic_control" pkg="generic_gnc" type="generic_control" output ="screen"/>
+  <node name="generic_navigation" pkg="generic_gnc" type="generic_navigation" output ="screen"/>
+  <node name="generic_fsm" pkg="generic_gnc" type="generic_fsm" output ="screen"/>
+
+  <node name="av_interface" pkg="generic_gnc" type="av_interface.py" output ="screen"/>
+
+  <node pkg="rosbag" type="record" name="recorder" args="record -a -O $(find generic_gnc)/log/log.bag"/>
+
+</launch>
+
+
