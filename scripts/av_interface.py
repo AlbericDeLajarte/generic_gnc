@@ -143,6 +143,8 @@ def control_callback(control):
     global current_control
     current_control = control
 
+    #print(current_control)
+
     if GNC_mode != "SIL":
         send_control(control)
 
@@ -193,7 +195,7 @@ if __name__ == '__main__':
 
     # Published topics: sensor data, actuator feedback
     sensor_pub = rospy.Publisher('sensor_pub', Sensor, queue_size=10)
-    actuator_pub = rospy.Publisher('control_measured', Control, queue_size=10)
+    actuator_pub = rospy.Publisher('control_measured', Control, queue_size=1)
 
     # Connect to AV if in flight mode (simulation = 0)
     if GNC_mode != "SIL":

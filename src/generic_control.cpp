@@ -35,7 +35,7 @@
 #include <sstream>
 #include <string>
 
-#define CONTROL_HORIZON 30 // In seconds
+#define CONTROL_HORIZON 2 // In seconds
 
 #include "../submodule/polympc/src/polynomials/ebyshev.hpp"
 #include "../submodule/polympc/src/control/continuous_ocp.hpp"
@@ -75,6 +75,9 @@ real_time_simulator::State current_state;
 // Global variable with last received control
 real_time_simulator::Control current_control;
 
+// Global variable with last receive reference trajectory
+real_time_simulator::Trajectory current_trajectory;
+
 // Global variable with last requested fsm 
 real_time_simulator::FSM current_fsm;
 
@@ -91,6 +94,13 @@ void controlCallback(const real_time_simulator::Control::ConstPtr& control)
 {
 	current_control.torque = control->torque;
 	current_control.force = control->force;
+}
+
+// Callback function to store last received measured control
+void guidanceCallback(const real_time_simulator::Trajectory::ConstPtr& trajectory)
+{
+	current_trajectory = *trajectory;
+  //std::cout << current_trajectory.trajectory[0] << "\n";
 }
 
 void fsm_Callback(const real_time_simulator::FSM::ConstPtr& fsm)
@@ -114,6 +124,9 @@ int main(int argc, char **argv)
 
   // Subscribe to measured control for MPC initialization
 	ros::Subscriber control_sub = n.subscribe("control_measured", 100, controlCallback);
+
+  // Subscribe to guidance reference trajectory
+	ros::Subscriber guidance_sub = n.subscribe("target_trajectory", 100, guidanceCallback);
 
   // Subscribe to fsm and time from time_keeper
   ros::Subscriber fsm_sub = n.subscribe("gnc_fsm_pub", 100, fsm_Callback);
@@ -213,7 +226,7 @@ int main(int argc, char **argv)
  
       else if (current_fsm.state_machine.compare("Launch") == 0)
 			{
-        control_law.force.z = 2000;
+        control_law.force.z = current_trajectory.trajectory[0].thrust;
       }
     
     //Last check in case fsm changed during control computation 

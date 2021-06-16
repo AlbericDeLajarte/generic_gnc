@@ -135,9 +135,6 @@ int main(int argc, char **argv)
 	// Init ROS control node
   ros::init(argc, argv, "guidance");
   ros::NodeHandle n;
- 
-	// Create control publisher
-	ros::Publisher control_pub = n.advertise<real_time_simulator::Control>("control_pub", 1);
 
   // Create waypoint trajectory publisher
 	ros::Publisher target_trajectory_pub = n.advertise<real_time_simulator::Trajectory>("target_trajectory", 10);
@@ -175,7 +172,7 @@ int main(int argc, char **argv)
   mpc_t::control_t lbu; 
   mpc_t::control_t ubu; 
 
-  lbu << -3000; // lower bound on control
+  lbu << -1000; // lower bound on control
 	ubu << 0; // upper bound on control
   mpc.control_bounds(lbu, ubu);  
 
@@ -217,6 +214,11 @@ int main(int argc, char **argv)
 
   mpc.parameters_bounds(lbp, ubp);
   mpc.p_guess(p0);
+
+  // Solve first guidance for intialization, and send it
+  mpc.initial_conditions(x0_inf, x0_sup); 
+  mpc.solve(); 
+  target_trajectory_pub.publish(create_trajectory()); 
   
   // Init default control to zero
   real_time_simulator::Control control_law;
@@ -294,16 +296,6 @@ int main(int argc, char **argv)
           }
         }
       }
-    
-    //Last check in case fsm changed during control computation 
-    if(client_fsm.call(srv_fsm))
-    {
-      current_fsm = srv_fsm.response.fsm;
-      if (current_fsm.state_machine.compare("Coast") != 0)
-      {
-          control_pub.publish(control_law);
-      }
-    }
        
     }
   });

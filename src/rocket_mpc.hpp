@@ -28,6 +28,9 @@ time_point get_time()
 using Polynomial = polympc::Chebyshev<POLY_ORDER, polympc::GAUSS_LOBATTO, double>;
 using Approximation = polympc::Spline<Polynomial, NUM_SEG>;
 
+
+// Guidance OCP class ---------------------------------------------------
+
 POLYMPC_FORWARD_DECLARATION(/*Name*/ guidance_ocp, /*NX*/ 8, /*NU*/ 1, /*NP*/ 1, /*ND*/ 0, /*NG*/0, /*TYPE*/ double)
 using namespace Eigen;
 
@@ -105,5 +108,112 @@ public:
   
     }
 };
+
+
+// Control OCP class ---------------------------------------------------
+
+POLYMPC_FORWARD_DECLARATION(/*Name*/ control_ocp, /*NX*/ 14, /*NU*/ 4, /*NP*/ 0, /*ND*/ 0, /*NG*/0, /*TYPE*/ double)
+
+class control_ocp : public ContinuousOCP<control_ocp, Approximation, SPARSE>
+{
+public:
+    ~control_ocp() = default;
+
+    static constexpr double t_start = 0.0;
+    static constexpr double t_stop  = CONTROL_HORIZON;
+
+    Eigen::DiagonalMatrix<scalar_t, 14> Q{1.0, 1.0, 5e4,    0.2, 0.2, 100,   5000, 5000, 5000, 5000,  500, 500, 500,    0};
+    Eigen::DiagonalMatrix<scalar_t, 4> R{5, 5, 1000, 5};
+    Eigen::DiagonalMatrix<scalar_t, 14> QN{1.0, 1.0, 5e4,   0.2, 0.2, 100,    5000, 5000, 5000, 5000,   500, 500, 500,    0};
+
+    Eigen::Matrix<scalar_t, 14,1> xs;
+    Eigen::Matrix<scalar_t, 4,1> us{0.0, 0.0, 0, 0.0};
+
+    template<typename T>
+    inline void dynamics_impl(const Eigen::Ref<const state_t<T>> x, const Eigen::Ref<const control_t<T>> u,
+                              const Eigen::Ref<const parameter_t<T>> p, const Eigen::Ref<const static_parameter_t> &d,
+                              const T &t, Eigen::Ref<state_t<T>> xdot) const noexcept
+    {
+        Eigen::Matrix<T, 4,1> input; input << rocket.maxThrust[0]*u(0), rocket.maxThrust[1]*u(1), 0.5*((rocket.maxThrust[2]-rocket.minThrust[2])*u(2) + rocket.maxThrust[2]+rocket.minThrust[2] ), rocket.maxTorque*u(3);
+
+        // -------------- Simulation parameters -------------- -------------
+        T g0 = (T)9.81;                             // Earth gravity in [m/s^2]
+
+        Eigen::Matrix<T, 3, 1> J_inv; J_inv << (T)rocket.J_inv[0], (T)rocket.J_inv[1], (T)rocket.J_inv[2]; // Cemter of mass divided by axes inertia
+
+        // -------------- Simulation variables -----------------------------
+        T mass = (T)rocket.dry_mass + x(6);                  // Instantaneous mass of the rocket in [kg]
+
+        // Orientation of the rocket with quaternion
+        Eigen::Quaternion<T> attitude( x(9), x(6), x(7), x(8));
+        Eigen::Matrix<T, 3, 3> rot_matrix = attitude.toRotationMatrix();
+
+        // Z drag --> Big approximation: speed in Z is basically the same between world and rocket
+        T drag = (T)(1e6*rocket.drag_coeff[2]*x(5)*x(5)); 
+        
+        // Force in body frame (drag + thrust) in [N]
+        Eigen::Matrix<T, 3, 1> rocket_force; rocket_force << (T)input(0), (T)input(1), (T)(input(2) - drag);
+
+        // Force in inertial frame: gravity
+        Eigen::Matrix<T, 3, 1> gravity; gravity << (T)0, (T)0, g0*mass;
+
+        // Total force in inertial frame [N]
+        Eigen::Matrix<T, 3, 1> total_force;  total_force = rot_matrix*rocket_force - gravity;
+
+        // Angular velocity omega in quaternion format to compute quaternion derivative
+        Eigen::Quaternion<T> omega_quat((T)0.0, x(10), x(11), x(12));
+        
+        // X, Y force and Z torque in body frame   
+        Eigen::Matrix<T, 3, 1> rocket_torque; rocket_torque << input(0), input(1), input(3);
+        
+        
+        // -------------- Differential equation ---------------------
+
+        // Position variation is speed
+        xdot.head(3) = x.segment(3,3);
+
+        // Speed variation is Force/mass
+        xdot.segment(3,3) = (T)1e-3*total_force/mass;  
+
+        // Quaternion variation is 0.5*w◦q
+        xdot.segment(6, 4) =  (T)0.5*(omega_quat*attitude).coeffs();
+
+        // Angular speed variation is Torque/Inertia
+        xdot.segment(10, 3) = rot_matrix*(rocket_torque.cwiseProduct(J_inv));
+
+        // Mass variation is proportional to thrust
+        xdot(13) = -input(2)/((T)rocket.Isp*g0);
+    }
+
+    template<typename T>
+    inline void lagrange_term_impl(const Eigen::Ref<const state_t<T>> x, const Eigen::Ref<const control_t<T>> u,
+                                   const Eigen::Ref<const parameter_t<T>> p, const Eigen::Ref<const static_parameter_t> d,
+                                   const scalar_t &t, T &lagrange) noexcept
+    {                 
+        Eigen::Matrix<T,14,14> Qm = Q.toDenseMatrix().template cast<T>();
+        Eigen::Matrix<T,4,4> Rm = R.toDenseMatrix().template cast<T>();
+        
+        Eigen::Matrix<T,14,1> x_error = x - xs.template cast<T>();
+        Eigen::Matrix<T,4,1> u_error = u - us.template cast<T>();
+        
+
+        lagrange = x_error.dot(Qm * x_error) + u_error.dot(Rm * u_error);
+
+    }
+
+    template<typename T>
+    inline void mayer_term_impl(const Eigen::Ref<const state_t<T>> x, const Eigen::Ref<const control_t<T>> u,
+                                const Eigen::Ref<const parameter_t<T>> p, const Eigen::Ref<const static_parameter_t> d,
+                                const scalar_t &t, T &mayer) noexcept
+    {
+        Eigen::Matrix<T,14,14> Qm = QN.toDenseMatrix().template cast<T>();
+        
+        Eigen::Matrix<T,14,1> x_error = x - xs.template cast<T>();
+                
+        mayer = x_error.dot(Qm * x_error);
+    }
+};
+
+
 
 #endif //SRC_ROCKET_MPC_HPP

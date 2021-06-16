@@ -380,6 +380,7 @@ int main(int argc, char **argv)
 			//std::cout << "S = " << ff_speed-kalman.X(5) << " m/s | H = " << ff_position-kalman.X(2) << " m | M = " << ff_mass << " kg\n";
 			
 			float predicted_apogee = rocket.check_apogee(ff_mass, ff_position, ff_speed);
+			//std::cout << predicted_apogee << "\n";
 			if(predicted_apogee>rocket.target_apogee[2])
 			{
 				real_time_simulator::Control control_law;

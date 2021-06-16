@@ -110,6 +110,8 @@ class FSM_publisher
 
 			// Initialize rocket state
 			n.getParam("/rocket/propellant_mass", current_rocket_state.propeller_mass); // To stay in launch mode at first iteration
+
+			current_control.force.z = 3000;
 			
 			timer_pub.publish(current_fsm);
 		}
