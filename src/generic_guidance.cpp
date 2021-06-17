@@ -100,7 +100,7 @@ void fsm_Callback(const real_time_simulator::FSM::ConstPtr& fsm)
 }
 
 real_time_simulator::Trajectory create_trajectory()
-{
+{  
   real_time_simulator::Trajectory trajectory_msg;    
   for(int i=0; i< mpc.ocp().NUM_NODES; i++)
   {
@@ -281,7 +281,7 @@ int main(int argc, char **argv)
           body_thrust = 0.0;
         }
 
-        std::cout << "Thrust: " << body_thrust << "N | Apogee: " << predicted_apogee << "m | Time: " << mpc.solution_p() << "s\n\n";
+        //std::cout << "Thrust: " << body_thrust << "N | Apogee: " << predicted_apogee << "m | Time: " << mpc.solution_p() << "s\n\n";
 
         if( (body_thrust == 0.0 && predicted_apogee > rocket.target_apogee[2])
           ||((int)body_thrust != 0 && predicted_apogee < rocket.target_apogee[2]) )

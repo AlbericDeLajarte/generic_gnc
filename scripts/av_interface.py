@@ -238,5 +238,5 @@ if __name__ == '__main__':
                     if current_control.force.z != 0.0 and current_fsm.time_now >= thrust_curve[0,0] and current_fsm.time_now <= thrust_curve[-1,0]:
                         real_thrust = float(f_thrust(current_fsm.time_now))
 
-                measured_control.force.z = real_thrust
+                measured_control = current_control
                 actuator_pub.publish(measured_control)

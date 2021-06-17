@@ -35,7 +35,7 @@
 #include <sstream>
 #include <string>
 
-#define CONTROL_HORIZON 2 // In seconds
+#define CONTROL_HORIZON 1 // In seconds
 
 #include "../submodule/polympc/src/polynomials/ebyshev.hpp"
 #include "../submodule/polympc/src/control/continuous_ocp.hpp"
@@ -56,16 +56,14 @@
 
 using namespace Eigen;  
  
-real_time_simulator::Control passive_control();
-
-using admm = boxADMM<guidance_ocp::VAR_SIZE, guidance_ocp::NUM_EQ, guidance_ocp::scalar_t,
-                guidance_ocp::MATRIXFMT, linear_solver_traits<guidance_ocp::MATRIXFMT>::default_solver>;
+using admm = boxADMM<control_ocp::VAR_SIZE, control_ocp::NUM_EQ, control_ocp::scalar_t,
+                control_ocp::MATRIXFMT, linear_solver_traits<control_ocp::MATRIXFMT>::default_solver>;
                 
 //using osqp_solver_t = polympc::OSQP<control_ocp::VAR_SIZE, control_ocp::NUM_EQ, control_ocp::scalar_t>;
 
 
 // Creates solver
-using mpc_t = MPC<guidance_ocp, MySolver, admm>;
+using mpc_t = MPC<control_ocp, MySolver, admm>;
 mpc_t mpc;
  
  
@@ -109,6 +107,81 @@ void fsm_Callback(const real_time_simulator::FSM::ConstPtr& fsm)
   current_fsm.time_now = fsm->time_now;
 }
 
+Eigen::Matrix<double, 4,1> convertControl_SI(const Eigen::Matrix<double, 4,1>& u)
+{
+  Eigen::Matrix<double, 4,1> input; input << rocket.maxThrust[0]*u(0), rocket.maxThrust[1]*u(1), 0.5*((rocket.maxThrust[2]-rocket.minThrust[2])*u(2) + rocket.maxThrust[2]+rocket.minThrust[2] ), rocket.maxTorque*u(3);
+  return input;
+}
+
+void trajectory_interpolate()
+{
+  // Find closest point in time compared to requested time
+  int i = 0;
+  for(i = 0; i<mpc.ocp().NUM_NODES; i++)
+  {
+    if(current_trajectory.trajectory[i].time > current_fsm.time_now+CONTROL_HORIZON)
+    {
+      break;
+    }
+  } 
+  int prev_point = i-1;
+  //std::cout << prev_point << "\n";
+  
+  // If requested time lies inside array of points:
+  if (prev_point >= 0 && prev_point < mpc.ocp().NUM_NODES -1)
+  {  
+    float ratio = ((current_fsm.time_now+CONTROL_HORIZON - current_trajectory.trajectory[prev_point].time)/(current_trajectory.trajectory[prev_point+1].time - current_trajectory.trajectory[prev_point].time));
+
+    mpc.ocp().xs << current_trajectory.trajectory[prev_point].position.x +  ratio* (current_trajectory.trajectory[prev_point].position.x - current_trajectory.trajectory[prev_point].position.x),
+                    current_trajectory.trajectory[prev_point].position.y +  ratio* (current_trajectory.trajectory[prev_point].position.y - current_trajectory.trajectory[prev_point].position.y),
+                    current_trajectory.trajectory[prev_point].position.z +  ratio* (current_trajectory.trajectory[prev_point].position.z - current_trajectory.trajectory[prev_point].position.z),
+
+                    current_trajectory.trajectory[prev_point].speed.x +  ratio* (current_trajectory.trajectory[prev_point].speed.x - current_trajectory.trajectory[prev_point].speed.x),
+                    current_trajectory.trajectory[prev_point].speed.y +  ratio* (current_trajectory.trajectory[prev_point].speed.y - current_trajectory.trajectory[prev_point].speed.y),
+                    current_trajectory.trajectory[prev_point].speed.z +  ratio* (current_trajectory.trajectory[prev_point].speed.z - current_trajectory.trajectory[prev_point].speed.z),
+
+                    0, 0, 0, 1, 
+                    
+                    0, 0, 0,
+
+                    current_trajectory.trajectory[prev_point].propeller_mass +  ratio* (current_trajectory.trajectory[prev_point].propeller_mass - current_trajectory.trajectory[prev_point].propeller_mass);
+    
+    mpc.ocp().xs.head(6) << 0,0,200,0,0,0;
+
+    mpc.ocp().xs.head(6) *= 1e-3;
+    //std::cout << mpc.ocp().xs.transpose() << "\n";
+  }
+  // If asked for a time before first point, give first point
+  else if (prev_point <0)
+  {
+    //res.target_point = trajectory[1];
+  }
+  // If asked for a time after first point, give last point
+  else
+  {
+    //res.target_point = trajectory[N_POINT -1];
+  }
+}
+
+void init_weight(ros::NodeHandle n)
+{
+  std::vector<double> r(4);
+  std::vector<double> q(14);
+
+  n.getParam("/mpc/R", r);
+  n.getParam("/mpc/Q", q);
+
+  mpc.ocp().R.diagonal() << r[0], r[1], r[2], r[3];
+
+  mpc.ocp().Q.diagonal() << q[0], q[1], q[2], q[3], q[4], q[5], q[6], q[7], q[8], q[9], q[10], q[11], q[12], q[13];
+
+  mpc.ocp().QN = mpc.ocp().Q;
+
+  n.getParam("/mpc/theta", mpc.ocp().weight_vertical_angle);
+}
+
+
+
 
 int main(int argc, char **argv)
 {
@@ -118,6 +191,9 @@ int main(int argc, char **argv)
  
 	// Create control publisher
 	ros::Publisher control_pub = n.advertise<real_time_simulator::Control>("control_pub", 1);
+
+  // Create path publisher
+  ros::Publisher MPC_horizon_pub = n.advertise<real_time_simulator::Trajectory>("mpc_horizon", 10);
 
 	// Subscribe to state message from generic_gnc
   ros::Subscriber rocket_state_sub = n.subscribe("kalman_rocket_state", 100, rocket_stateCallback);
@@ -138,71 +214,79 @@ int main(int argc, char **argv)
 	// Initialize fsm
 	current_fsm.time_now = 0;
 	current_fsm.state_machine = "Idle";
+
+  // Initialize trajectory
+  int i;
+  real_time_simulator::Waypoint waypoint0;
+  for(i = 0; i<mpc.ocp().NUM_NODES; i++)
+  {
+    current_trajectory.trajectory.push_back(waypoint0);
+  }
 	
   // Initialize rocket class with useful parameters
   rocket.init(n);
 
   // Init MPC ----------------------------------------------------------------------------------------------------------------------
 	
-  mpc.settings().max_iter = 10; 
+  mpc.settings().max_iter = 2; 
   mpc.settings().line_search_max_iter = 10;
+  //mpc.qp_settings().max_iter = 25;
   //mpc.m_solver.settings().max_iter = 1000;
   //mpc.m_solver.settings().scaling = 10;
 
+  // Cost weight
+  init_weight(n);
 
-  // Input constraints and initialisation -------------
+  mpc.set_time_limits(0, CONTROL_HORIZON);
+
+
+  // Input constraints
   const double inf = std::numeric_limits<double>::infinity();
   mpc_t::control_t lbu; 
-  mpc_t::control_t ubu; 
-
-  lbu << -3000; // lower bound on control
-	ubu << 0; // upper bound on control
-  mpc.control_bounds(lbu, ubu);  
+  mpc_t::control_t ubu;
+  mpc_t::control_t u0; 
+  
+  lbu << -1, -1, -1, -1; // lower bound on control
+  ubu << 1, 1, 1, 1; // upper bound on control
+  u0 <<  0, 0, 1, 0; // Ideal control for init
+  
+  //lbu << -inf, -inf, -inf, -inf;
+  //ubu <<  inf,  inf,  inf,  inf;
+  mpc.control_bounds(lbu, ubu); 
 
   // Initial control
-  mpc.u_guess(ubu.replicate(mpc.ocp().NUM_NODES,1));
+  mpc.u_guess(u0.replicate(mpc.ocp().NUM_NODES,1));
 
-  // State constraints and initialisation ---------------
+  // State constraints
   const double eps = 1e-1;
   mpc_t::state_t lbx; 
   mpc_t::state_t ubx; 
   
-  lbx << -inf, -inf, 0,                           -inf, -inf, -inf,      0-eps,                      rocket.minThrust[2]-eps;
-  ubx <<  inf,  inf, rocket.target_apogee[2],      inf,  inf, 330+eps,   rocket.propellant_mass+eps, rocket.maxThrust[2];
+  lbx << -inf, -inf, 0,     -inf, -inf, 0-eps,     -0.183-eps, -0.183-eps, -0.183-eps, -1-eps,   -inf, -inf, -inf,     0-eps;
+  ubx <<  inf,  inf, inf,    inf,  inf, 330+eps,    0.183+eps,  0.183+eps,  0.183+eps,  1+eps,    inf,  inf,  inf,     rocket.propellant_mass+eps;
   
-  // lbx << -inf, -inf, -inf,   -inf, -inf, -inf,   -inf;
-  // ubx <<  inf,  inf, inf,     inf,  inf, inf,     inf;
+  //lbx << -inf, -inf, -inf,   -inf, -inf, -inf,   -inf, -inf, -inf, -inf,   -inf, -inf, -inf,     -inf;
+  //ubx << inf,  inf, inf,     inf,  inf, inf,    inf,  inf,  inf,  inf,     inf,  inf,  inf,      inf;
   mpc.state_bounds(lbx, ubx);
-   
-  // Final state
-  mpc_t::state_t lbx_f; lbx_f << -inf, -inf, rocket.target_apogee[2],     -inf, -inf, 0-1,   0-eps,                     -rocket.minThrust[2]-eps; // lower bound on final state
-  mpc_t::state_t ubx_f; ubx_f <<  inf,  inf, rocket.target_apogee[2]+50,   inf,  inf, 0+1,   rocket.propellant_mass+eps, rocket.maxThrust[2]; // upper bound on final state
-  mpc.final_state_bounds(lbx_f, ubx_f);
 
   // Initial state
-  mpc_t::state_t x0_inf, x0_sup;  
-  x0_inf << 0, 0, 0,
-            0, 0, 0,
-            rocket.propellant_mass,
-            rocket.minThrust[2]; 
-  x0_sup = x0_inf;
-  x0_sup(7) = rocket.maxThrust[2];
-  
-  mpc.x_guess(x0_sup.replicate(mpc.ocp().NUM_NODES,1));	
- 
-  // Parameters
-  mpc_t::parameter_t lbp; lbp << 0.0;                 // lower bound on time
-  mpc_t::parameter_t ubp; ubp << CONTROL_HORIZON;     // upper bound on time
-  mpc_t::parameter_t p0; p0 << CONTROL_HORIZON/1.5;   // very important to set initial time estimate
+  mpc_t::state_t x0;
+  x0 << 0, 0, 0,
+        0, 0, 0,
+        0, 0, 0, 1, 
+        0, 0, 0,
+        rocket.propellant_mass;
+  mpc.x_guess(x0.replicate(14,1));	
 
-  mpc.parameters_bounds(lbp, ubp);
-  mpc.p_guess(p0);
-  
+  // Variables to track performance over whole simulation
+	std::vector<float> average_time;
+  std::vector<int> average_status;
+   
   // Init default control to zero
   real_time_simulator::Control control_law;
 
   // Thread to compute control. Duration defines interval time in seconds
-  ros::Timer control_thread = n.createTimer(ros::Duration(0.200), [&](const ros::TimerEvent&) 
+  ros::Timer control_thread = n.createTimer(ros::Duration(0.050), [&](const ros::TimerEvent&) 
 	{
     //Get current FSM and time 
     if(client_fsm.call(srv_fsm))
@@ -221,12 +305,64 @@ int main(int argc, char **argv)
 
       if (current_fsm.state_machine.compare("Rail") == 0)// || current_fsm.state_machine.compare("Launch") == 0)
       {
-        control_law.force.z = 2000;
-      }    
+        control_law.force.z = rocket.maxThrust[2];
+      }     
  
       else if (current_fsm.state_machine.compare("Launch") == 0)
 			{
-        control_law.force.z = current_trajectory.trajectory[0].thrust;
+        // Initialize current state and target state
+        x0 <<   current_state.pose.position.x/1000, current_state.pose.position.y/1000, current_state.pose.position.z/1000,
+                current_state.twist.linear.x/1000, current_state.twist.linear.y/1000, current_state.twist.linear.z/1000,
+                current_state.pose.orientation.x, current_state.pose.orientation.y, current_state.pose.orientation.z, current_state.pose.orientation.w, 
+                current_state.twist.angular.x, current_state.twist.angular.y, current_state.twist.angular.z,
+                current_state.propeller_mass;
+
+        mpc.initial_conditions(x0);
+        rocket.update_CM(x0(13));
+
+
+        trajectory_interpolate();
+
+        // Solve problem and save solution
+        double time_now = ros::Time::now().toSec();
+        mpc.solve();
+        time_now = 1000*(ros::Time::now().toSec()-time_now);
+
+        ROS_INFO("Ctr T= %.2f ms, st: %d, iter: %d", time_now , mpc.info().status.value,  mpc.info().iter);
+        //average_status.push_back(mpc.info().status.value);
+        //average_time.push_back(time_now);
+
+        // Get state and control solution
+        Eigen::Matrix<double, 4, 1> control_MPC;
+        control_MPC =  mpc.solution_u_at(0);
+
+        Eigen::Matrix<double, 4,1> input = convertControl_SI(control_MPC);
+        //ROS_INFO("Fx: %f, Fy: %f, Fz: %f, Mx: %f \n",  input[0], input[1], input[2], input[3]);
+
+        // Apply MPC control
+        control_law.force.x = input[0];
+        control_law.force.y = input[1];
+        control_law.force.z = input[2];
+
+        control_law.torque.x = control_law.force.y*rocket.total_CM; 
+        control_law.torque.y = -control_law.force.x*rocket.total_CM; 
+        control_law.torque.z = input[3];
+
+        //control_law.force.z = current_trajectory.trajectory[0].thrust;
+
+        control_law.force.z = 450;
+
+        // Send optimal trajectory computed by control. Send only position for now
+        real_time_simulator::Trajectory trajectory_msg;
+        for(int i = 0; i<mpc.ocp().NUM_NODES ;i++){
+          real_time_simulator::Waypoint point;
+          point.position.x = 1000*mpc.solution_x_at(i)[0];
+          point.position.y = 1000*mpc.solution_x_at(i)[1];
+          point.position.z = 1000*mpc.solution_x_at(i)[2];
+          trajectory_msg.trajectory.push_back(point);
+        }
+
+        MPC_horizon_pub.publish(trajectory_msg);
       }
     
     //Last check in case fsm changed during control computation 

@@ -122,12 +122,13 @@ public:
     static constexpr double t_start = 0.0;
     static constexpr double t_stop  = CONTROL_HORIZON;
 
-    Eigen::DiagonalMatrix<scalar_t, 14> Q{1.0, 1.0, 5e4,    0.2, 0.2, 100,   5000, 5000, 5000, 5000,  500, 500, 500,    0};
-    Eigen::DiagonalMatrix<scalar_t, 4> R{5, 5, 1000, 5};
-    Eigen::DiagonalMatrix<scalar_t, 14> QN{1.0, 1.0, 5e4,   0.2, 0.2, 100,    5000, 5000, 5000, 5000,   500, 500, 500,    0};
+    Eigen::DiagonalMatrix<scalar_t, 14> Q;
+    Eigen::DiagonalMatrix<scalar_t, 4> R;
+    Eigen::DiagonalMatrix<scalar_t, 14> QN;
+    double weight_vertical_angle = 0;
 
     Eigen::Matrix<scalar_t, 14,1> xs;
-    Eigen::Matrix<scalar_t, 4,1> us{0.0, 0.0, 0, 0.0};
+    Eigen::Matrix<scalar_t, 4,1> us{0.0, 0.0, 1, 0.0};
 
     template<typename T>
     inline void dynamics_impl(const Eigen::Ref<const state_t<T>> x, const Eigen::Ref<const control_t<T>> u,
@@ -164,7 +165,7 @@ public:
         Eigen::Quaternion<T> omega_quat((T)0.0, x(10), x(11), x(12));
         
         // X, Y force and Z torque in body frame   
-        Eigen::Matrix<T, 3, 1> rocket_torque; rocket_torque << input(0), input(1), input(3);
+        Eigen::Matrix<T, 3, 1> rocket_torque; rocket_torque << input(1), -input(0), input(3);
         
         
         // -------------- Differential equation ---------------------
@@ -195,9 +196,11 @@ public:
         
         Eigen::Matrix<T,14,1> x_error = x - xs.template cast<T>();
         Eigen::Matrix<T,4,1> u_error = u - us.template cast<T>();
-        
 
-        lagrange = x_error.dot(Qm * x_error) + u_error.dot(Rm * u_error);
+        T cos_vertical_angle = x(9)*x(9) + x(8)*x(8) - x(7)*x(7) -x(6)*x(6);
+         
+
+        lagrange = x_error.dot(Qm * x_error) + u_error.dot(Rm * u_error) + (cos_vertical_angle-1)*(cos_vertical_angle-1)*weight_vertical_angle;
 
     }
 

@@ -1,0 +1,29 @@
+#------------- Rocket parameters --------------------
+#
+# Defines parameters specific to the Control algorithm:
+#   - General dimensions of the components
+#   - Rocket engine specifications
+#   - Targeted apogee
+#
+# ----------------------------------------------------
+Q:
+  - 0
+  - 0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0.0
+  - 0
+  - 0
+  - 0
+  - 0.0
+theta: 1.0e+4
+R:
+  - 20
+  - 20
+  - 0
+  - 0

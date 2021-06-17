@@ -70,7 +70,6 @@ class KF {
 		// Estimated calibration correction from initial pose
 		bool calib_done = false;
 		Eigen::Vector3d acc_bias;
-
 		Eigen::Vector3d gyro_bias;
 
 		double baro_bias;
@@ -84,6 +83,7 @@ class KF {
 		Eigen::Matrix<double, 1, 2> H;
 
 		Eigen::Matrix<double, 14, 1> X;
+		Eigen::Matrix<double, 14, 1> X_forward;
 
 		void init_KF(ros::NodeHandle n)
 		{
@@ -216,8 +216,7 @@ class KF {
 			state_dynamics(x_inter, k3); 	x_inter = x+k3*dT;
 			state_dynamics(x_inter, k4);
 
-			x = x + (k1+2*k2+2*k3+k4)*dT/6;
-			 
+			x = x + (k1+2*k2+2*k3+k4)*dT/6;	 
 		}
 
 		void predict_step()
@@ -400,27 +399,31 @@ int main(int argc, char **argv)
 			control_law.force.z = 0.0;
 			control_pub.publish(control_law); 
 		}
+
+		kalman.X_forward = kalman.X;
+		kalman.RK4(kalman.X_forward, 0.050);
+
 		// Parse kalman state and publish it on the /kalman_pub topic
 		real_time_simulator::State kalman_state;
 
-		kalman_state.pose.position.x = kalman.X(0);
-		kalman_state.pose.position.y = kalman.X(1);
-		kalman_state.pose.position.z = kalman.X(2);
+		kalman_state.pose.position.x = kalman.X_forward(0);
+		kalman_state.pose.position.y = kalman.X_forward(1);
+		kalman_state.pose.position.z = kalman.X_forward(2);
 
-		kalman_state.twist.linear.x = kalman.X(3);
-		kalman_state.twist.linear.y = kalman.X(4);
-		kalman_state.twist.linear.z = kalman.X(5);
+		kalman_state.twist.linear.x = kalman.X_forward(3);
+		kalman_state.twist.linear.y = kalman.X_forward(4);
+		kalman_state.twist.linear.z = kalman.X_forward(5);
 
-		kalman_state.pose.orientation.x = kalman.X(6);
-		kalman_state.pose.orientation.y = kalman.X(7);
-		kalman_state.pose.orientation.z = kalman.X(8);
-		kalman_state.pose.orientation.w = kalman.X(9);
+		kalman_state.pose.orientation.x = kalman.X_forward(6);
+		kalman_state.pose.orientation.y = kalman.X_forward(7);
+		kalman_state.pose.orientation.z = kalman.X_forward(8);
+		kalman_state.pose.orientation.w = kalman.X_forward(9);
 
-		kalman_state.twist.angular.x = kalman.X(10);
-		kalman_state.twist.angular.y = kalman.X(11);
-		kalman_state.twist.angular.z = kalman.X(12);
+		kalman_state.twist.angular.x = kalman.X_forward(10);
+		kalman_state.twist.angular.y = kalman.X_forward(11);
+		kalman_state.twist.angular.z = kalman.X_forward(12);
 
-		kalman_state.propeller_mass = kalman.X(13);
+		kalman_state.propeller_mass = kalman.X_forward(13);
 
 		kalman_pub.publish(kalman_state);
 	});
