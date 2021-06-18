@@ -15,6 +15,10 @@
       <rosparam file="$(find real_time_simulator)/config/perturbations_parameters.yaml" />
   </group>
 
+  <group ns="mpc">
+      <rosparam file="$(find generic_gnc)/config/mpc_parameters.yaml" />
+  </group>
+
   <node name="monte_carlo_logger" pkg="generic_gnc" type="monte_carlo.py" output ="screen"/>
   <node pkg="rosbag" type="record" name="recorder" args="record -a -O $(find real_time_simulator)/log/log.bag"/>
 

@@ -12,6 +12,10 @@
       <rosparam file="$(find generic_gnc)/config/environment_parameters.yaml" />
   </group>
 
+  <group ns="mpc">
+      <rosparam file="$(find generic_gnc)/config/mpc_parameters.yaml" />
+  </group>
+
   <group ns="perturbation">
       <rosparam file="$(find real_time_simulator)/config/perturbations_parameters.yaml" />
   </group>
