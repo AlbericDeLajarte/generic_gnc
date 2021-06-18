@@ -268,7 +268,7 @@ int main(int argc, char **argv)
         double time_now = ros::Time::now().toSec(); 
         mpc.solve(); 
         double dT = ros::Time::now().toSec()-time_now;
-        ROS_INFO("Gdc T= %.2f ms, st: %d, iter: %d",  1000*dT, mpc.info().status.value,  mpc.info().iter);
+        //ROS_INFO("Gdc T= %.2f ms, st: %d, iter: %d",  1000*dT, mpc.info().status.value,  mpc.info().iter);
         
 
         double body_thrust = mpc.solution_x_at(0)[7];

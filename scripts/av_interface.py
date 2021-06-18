@@ -232,11 +232,14 @@ if __name__ == '__main__':
                 real_thrust = 0.0
 
                 if THROTTLING:
-                    real_thrust = current_control.force.z
+                    measured_control = current_control
 
                 else:
-                    if current_control.force.z != 0.0 and current_fsm.time_now >= thrust_curve[0,0] and current_fsm.time_now <= thrust_curve[-1,0]:
-                        real_thrust = float(f_thrust(current_fsm.time_now))
+                    # if current_control.force.z != 0.0 and current_fsm.time_now >= thrust_curve[0,0] and current_fsm.time_now <= thrust_curve[-1,0]:
+                    #     #measured_control.force.z = float(f_thrust(current_fsm.time_now))
+                    #     measured_control.force.z =  current_control.force.z
+                   
+                    measured_control.force.z =  current_control.force.z    
 
-                measured_control = current_control
+                
                 actuator_pub.publish(measured_control)

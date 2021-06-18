@@ -35,7 +35,7 @@
 #include <sstream>
 #include <string>
 
-#define CONTROL_HORIZON 1 // In seconds
+#define CONTROL_HORIZON 2 // In seconds
 
 #include "../submodule/polympc/src/polynomials/ebyshev.hpp"
 #include "../submodule/polympc/src/control/continuous_ocp.hpp"
@@ -132,24 +132,29 @@ void trajectory_interpolate()
   {  
     float ratio = ((current_fsm.time_now+CONTROL_HORIZON - current_trajectory.trajectory[prev_point].time)/(current_trajectory.trajectory[prev_point+1].time - current_trajectory.trajectory[prev_point].time));
 
-    mpc.ocp().xs << current_trajectory.trajectory[prev_point].position.x +  ratio* (current_trajectory.trajectory[prev_point].position.x - current_trajectory.trajectory[prev_point].position.x),
-                    current_trajectory.trajectory[prev_point].position.y +  ratio* (current_trajectory.trajectory[prev_point].position.y - current_trajectory.trajectory[prev_point].position.y),
-                    current_trajectory.trajectory[prev_point].position.z +  ratio* (current_trajectory.trajectory[prev_point].position.z - current_trajectory.trajectory[prev_point].position.z),
+    mpc.ocp().xs << current_trajectory.trajectory[prev_point].position.x +  ratio* (current_trajectory.trajectory[prev_point+1].position.x - current_trajectory.trajectory[prev_point].position.x),
+                    current_trajectory.trajectory[prev_point].position.y +  ratio* (current_trajectory.trajectory[prev_point+1].position.y - current_trajectory.trajectory[prev_point].position.y),
+                    current_trajectory.trajectory[prev_point].position.z +  ratio* (current_trajectory.trajectory[prev_point+1].position.z - current_trajectory.trajectory[prev_point].position.z),
 
-                    current_trajectory.trajectory[prev_point].speed.x +  ratio* (current_trajectory.trajectory[prev_point].speed.x - current_trajectory.trajectory[prev_point].speed.x),
-                    current_trajectory.trajectory[prev_point].speed.y +  ratio* (current_trajectory.trajectory[prev_point].speed.y - current_trajectory.trajectory[prev_point].speed.y),
-                    current_trajectory.trajectory[prev_point].speed.z +  ratio* (current_trajectory.trajectory[prev_point].speed.z - current_trajectory.trajectory[prev_point].speed.z),
+                    current_trajectory.trajectory[prev_point].speed.x +  ratio* (current_trajectory.trajectory[prev_point+1].speed.x - current_trajectory.trajectory[prev_point].speed.x),
+                    current_trajectory.trajectory[prev_point].speed.y +  ratio* (current_trajectory.trajectory[prev_point+1].speed.y - current_trajectory.trajectory[prev_point].speed.y),
+                    current_trajectory.trajectory[prev_point].speed.z +  ratio* (current_trajectory.trajectory[prev_point+1].speed.z - current_trajectory.trajectory[prev_point].speed.z),
 
                     0, 0, 0, 1, 
                     
                     0, 0, 0,
 
-                    current_trajectory.trajectory[prev_point].propeller_mass +  ratio* (current_trajectory.trajectory[prev_point].propeller_mass - current_trajectory.trajectory[prev_point].propeller_mass);
+                    current_trajectory.trajectory[prev_point].propeller_mass +  ratio* (current_trajectory.trajectory[prev_point+1].propeller_mass - current_trajectory.trajectory[prev_point].propeller_mass);
     
-    mpc.ocp().xs.head(6) << 0,0,200,0,0,0;
+    //mpc.ocp().xs.head(6) << 0,0,rocket.target_apogee[2],0,0,0;
 
     mpc.ocp().xs.head(6) *= 1e-3;
-    //std::cout << mpc.ocp().xs.transpose() << "\n";
+
+    float optimal_thrust = current_trajectory.trajectory[prev_point].thrust +  ratio* (current_trajectory.trajectory[prev_point+1].thrust - current_trajectory.trajectory[prev_point].thrust);
+
+    mpc.ocp().us << 0.0, 0.0, 
+                    (2*optimal_thrust - rocket.maxThrust[2]- rocket.minThrust[2])/(rocket.maxThrust[2]- rocket.minThrust[2]),
+                    0.0;
   }
   // If asked for a time before first point, give first point
   else if (prev_point <0)
@@ -328,7 +333,7 @@ int main(int argc, char **argv)
         mpc.solve();
         time_now = 1000*(ros::Time::now().toSec()-time_now);
 
-        ROS_INFO("Ctr T= %.2f ms, st: %d, iter: %d", time_now , mpc.info().status.value,  mpc.info().iter);
+        ROS_INFO("Ctr T= %.2f ms, st: %d, iter: %d, end time: %.2f", time_now , mpc.info().status.value,  mpc.info().iter, mpc.time_grid[mpc.ocp().NUM_NODES-1]);
         //average_status.push_back(mpc.info().status.value);
         //average_time.push_back(time_now);
 
@@ -350,7 +355,7 @@ int main(int argc, char **argv)
 
         //control_law.force.z = current_trajectory.trajectory[0].thrust;
 
-        control_law.force.z = 450;
+        //control_law.force.z = rocket.maxThrust[2];
 
         // Send optimal trajectory computed by control. Send only position for now
         real_time_simulator::Trajectory trajectory_msg;
